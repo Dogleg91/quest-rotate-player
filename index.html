@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<title>回転プレイヤー</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #000; color: #eee;
+    font-family: system-ui, "Segoe UI", sans-serif; overflow: hidden; }
+  #bar { position: fixed; top: 0; left: 0; right: 0; z-index: 10; display: flex; gap: 8px;
+    padding: 10px; background: rgba(20,20,20,.92); align-items: center; flex-wrap: wrap; }
+  #url { flex: 1; min-width: 200px; font-size: 18px; padding: 10px 12px; border-radius: 8px;
+    border: 1px solid #444; background: #111; color: #eee; }
+  button { font-size: 18px; padding: 10px 16px; border-radius: 8px; border: 0;
+    background: #333; color: #fff; cursor: pointer; }
+  button:hover { background: #444; }
+  #rot { background: #c62828; font-size: 22px; padding: 10px 22px; }
+  #rot:hover { background: #e53935; }
+  #stage { position: absolute; inset: 0; top: var(--bar, 64px); }
+  #frame { position: absolute; left: 50%; top: 50%; border: 0; background: #000;
+    transition: transform .25s ease; }
+  #hint { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: #888; font-size: 20px; text-align: center; padding: 20px; }
+  /* UIを隠したとき：右下に小さな回転ボタンだけ残す */
+  body.hide #bar { display: none; }
+  body.hide #stage { top: 0; }
+  #mini { position: fixed; right: 12px; bottom: 12px; z-index: 11; display: none;
+    opacity: .35; background: #c62828; font-size: 22px; }
+  #mini:hover { opacity: 1; }
+  #show { position: fixed; left: 12px; bottom: 12px; z-index: 11; display: none; opacity: .35; }
+  #show:hover { opacity: 1; }
+  body.hide #mini, body.hide #show { display: block; }
+  /* 調整モード：動画の上に透明な操作面をかぶせ、ドラッグ・スティックを受け取る */
+  #pad { position: absolute; inset: 0; z-index: 5; display: none; cursor: move;
+    touch-action: none; outline: 3px dashed #ffb300; outline-offset: -3px; }
+  body.adjust #pad { display: block; }
+  body.adjust #frame { transition: none; }
+  #adj.on, #mini2.on { background: #ffb300; color: #000; }
+  #mini2 { position: fixed; right: 80px; bottom: 12px; z-index: 11; display: none; opacity: .35; font-size: 22px; }
+  #mini2:hover, #mini2.on { opacity: 1; }
+  body.hide #mini2 { display: block; }
+  #zoomInfo { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); z-index: 6;
+    background: rgba(0,0,0,.7); padding: 6px 14px; border-radius: 8px; font-size: 18px;
+    pointer-events: none; display: none; }
+  body.adjust #zoomInfo { display: block; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <input id="url" placeholder="YouTubeのURLを貼り付け" autocomplete="off">
+  <button id="load">再生</button>
+  <button id="rot" title="90°回転 (R)">⟳ 90°</button>
+  <button id="adj" title="位置・大きさ調整 (A)">✥ 調整</button>
+  <button id="zout" title="縮小 (-)">－</button>
+  <button id="zin" title="拡大 (+)">＋</button>
+  <button id="reset" title="位置と大きさを戻す (0)">戻す</button>
+  <button id="fs" title="全画面 (F)">全画面</button>
+  <button id="hide" title="ボタンを隠す (H)">隠す</button>
+</div>
+<div id="stage">
+  <div id="hint">YouTubeのURLを貼って「再生」</div>
+  <iframe id="frame" hidden allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>
+  <div id="pad"></div>
+  <div id="zoomInfo"></div>
+</div>
+<button id="mini" title="90°回転">⟳</button>
+<button id="mini2" title="位置・大きさ調整">✥</button>
+<button id="show">☰</button>
+
+<script>
+const $ = id => document.getElementById(id);
+const frame = $('frame'), stage = $('stage');
+let deg = 0;
+
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+};
+
+function parse(input) {
+  const s = input.trim();
+  if (/^[\w-]{11}$/.test(s)) return { id: s };
+  let u;
+  try { u = new URL(s.startsWith('http') ? s : 'https://' + s); } catch { return null; }
+  let id = null;
+  if (u.hostname.endsWith('youtu.be')) id = u.pathname.slice(1, 12);
+  else if (u.searchParams.get('v')) id = u.searchParams.get('v');
+  else {
+    const m = u.pathname.match(/\/(?:shorts|live|embed|v)\/([\w-]{11})/);
+    if (m) id = m[1];
+  }
+  const list = u.searchParams.get('list');
+  const t = u.searchParams.get('t') || u.searchParams.get('start');
+  if (!id && !list) return null;
+  return { id, list, start: t ? parseInt(t, 10) || 0 : 0 };
+}
+
+function load() {
+  const p = parse($('url').value);
+  if (!p) { $('hint').textContent = 'URLを読み取れませんでした'; return; }
+  const q = new URLSearchParams({ autoplay: 1, playsinline: 1, rel: 0, origin: location.origin });
+  if (p.list) q.set('list', p.list);
+  if (p.start) q.set('start', p.start);
+  frame.src = `https://www.youtube.com/embed/${p.id || 'videoseries'}?${q}`;
+  frame.hidden = false;
+  $('hint').hidden = true;
+  store.set('url', $('url').value);
+  layout();
+}
+
+// 90°/270°のときはiframeの縦横を入れ替えてから回転 → 画面いっぱいに収まる
+function layout() {
+  document.documentElement.style.setProperty('--bar',
+    document.body.classList.contains('hide') ? '0px' : $('bar').offsetHeight + 'px');
+  const W = stage.clientWidth, H = stage.clientHeight;
+  const side = deg % 180 !== 0;
+  frame.style.width = (side ? H : W) + 'px';
+  frame.style.height = (side ? W : H) + 'px';
+  frame.style.transform =
+    `translate(calc(-50% + ${view.x}px), calc(-50% + ${view.y}px)) rotate(${deg}deg) scale(${view.s})`;
+  $('zoomInfo').textContent = `${Math.round(view.s * 100)}%　ドラッグで移動・スティック上下で拡大縮小`;
+}
+
+// ---- 位置・大きさ調整 ----
+const view = { s: 1, x: 0, y: 0 };
+const ZMIN = 0.2, ZMAX = 5;
+
+function saveView() { store.set('view', JSON.stringify(view)); }
+
+function zoom(factor) {
+  view.s = Math.min(ZMAX, Math.max(ZMIN, view.s * factor));
+  saveView();
+  layout();
+}
+
+function resetView() {
+  Object.assign(view, { s: 1, x: 0, y: 0 });
+  saveView();
+  layout();
+}
+
+function toggleAdjust() {
+  const on = document.body.classList.toggle('adjust');
+  $('adj').classList.toggle('on', on);
+  $('mini2').classList.toggle('on', on);
+}
+
+const pad = $('pad');
+let drag = null;
+pad.addEventListener('pointerdown', e => {
+  drag = { px: e.clientX, py: e.clientY, x: view.x, y: view.y };
+  pad.setPointerCapture(e.pointerId);
+});
+pad.addEventListener('pointermove', e => {
+  if (!drag) return;
+  view.x = drag.x + e.clientX - drag.px;
+  view.y = drag.y + e.clientY - drag.py;
+  layout();
+});
+const endDrag = () => { if (drag) { drag = null; saveView(); } };
+pad.addEventListener('pointerup', endDrag);
+pad.addEventListener('pointercancel', endDrag);
+// Questのスティック上下はホイールとして届く
+pad.addEventListener('wheel', e => {
+  e.preventDefault();
+  zoom(Math.exp(-e.deltaY * 0.0015));
+}, { passive: false });
+pad.addEventListener('dblclick', resetView);
+
+function rotate() {
+  deg += 90;
+  store.set('deg', deg % 360);
+  layout();
+}
+
+function fullscreen() {
+  if (document.fullscreenElement) document.exitFullscreen();
+  else document.documentElement.requestFullscreen?.().catch(() => {});
+}
+
+function toggleUI() {
+  document.body.classList.toggle('hide');
+  layout();
+}
+
+$('load').onclick = load;
+$('url').addEventListener('keydown', e => { if (e.key === 'Enter') load(); });
+$('rot').onclick = $('mini').onclick = rotate;
+$('fs').onclick = fullscreen;
+$('hide').onclick = $('show').onclick = toggleUI;
+$('adj').onclick = $('mini2').onclick = toggleAdjust;
+$('zin').onclick = () => zoom(1.15);
+$('zout').onclick = () => zoom(1 / 1.15);
+$('reset').onclick = resetView;
+addEventListener('resize', layout);
+document.addEventListener('fullscreenchange', layout);
+document.addEventListener('keydown', e => {
+  if (e.target === $('url')) return;
+  if (e.key === 'r' || e.key === 'R') rotate();
+  else if (e.key === 'f' || e.key === 'F') fullscreen();
+  else if (e.key === 'h' || e.key === 'H') toggleUI();
+  else if (e.key === 'a' || e.key === 'A') toggleAdjust();
+  else if (e.key === '+' || e.key === '=') zoom(1.15);
+  else if (e.key === '-') zoom(1 / 1.15);
+  else if (e.key === '0') resetView();
+  else if (e.key.startsWith('Arrow')) {
+    const d = 20;
+    if (e.key === 'ArrowLeft') view.x -= d;
+    if (e.key === 'ArrowRight') view.x += d;
+    if (e.key === 'ArrowUp') view.y -= d;
+    if (e.key === 'ArrowDown') view.y += d;
+    saveView();
+    layout();
+  }
+});
+
+deg = parseInt(store.get('deg'), 10) || 0;
+try { Object.assign(view, JSON.parse(store.get('view')) || {}); } catch {}
+const last = store.get('url');
+if (last) $('url').value = last;
+layout();
+</script>
+</body>
+</html>
