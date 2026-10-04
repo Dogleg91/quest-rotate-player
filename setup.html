@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>回転ボタンの登録</title>
+<style>
+  :root { --bg: #14161a; --panel: #1f232a; --line: #333a44; --text: #e8eaee; --dim: #9aa3b0; --accent: #e5483b; --hl: #ffb300; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 18px/1.7 system-ui, "Segoe UI", sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 28px 18px 60px; display: grid; gap: 22px; }
+  h1 { font-size: 28px; margin: 0; }
+  h2 { font-size: 21px; margin: 0 0 6px; }
+  p { margin: 0; color: var(--dim); }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; display: grid; gap: 10px; }
+  ol { margin: 0; padding-left: 1.4em; display: grid; gap: 6px; }
+  b { color: var(--hl); font-weight: 600; }
+  .copy { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  button { font: inherit; font-size: 20px; padding: 12px 22px; border: 0; border-radius: 10px; background: var(--accent); color: #fff; cursor: pointer; }
+  button:focus-visible { outline: 3px solid var(--hl); outline-offset: 2px; }
+  #msg { color: var(--hl); }
+  textarea { width: 100%; height: 90px; font: 13px/1.4 ui-monospace, Consolas, monospace; background: #0d0f12; color: var(--dim); border: 1px solid var(--line); border-radius: 8px; padding: 8px; resize: vertical; }
+  .keys { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; }
+  .keys span:nth-child(odd) { color: var(--hl); white-space: nowrap; }
+  a { color: var(--hl); }
+</style>
+</head>
+<body>
+<main>
+  <h1>YouTube 回転ボタンの登録</h1>
+  <p>いつものYouTube（ログイン済み）を見ながら、ブックマークを1回押すと「⟳ 90°」などのボタンが出るようにします。登録は最初の1回だけです。</p>
+
+  <section>
+    <h2>1. コードをコピー</h2>
+    <div class="copy">
+      <button id="copy">コードをコピー</button>
+      <span id="msg"></span>
+    </div>
+    <textarea id="code" readonly>javascript:(() =&gt; { if (window.__qrp) { window.__qrp.toggle(); return; } const S = { deg: 0, s: 1, x: 0, y: 0, on: false, adjust: false }; try { Object.assign(S, JSON.parse(localStorage.getItem(&#x27;qrp&#x27;) || &#x27;{}&#x27;), { on: false, adjust: false }); } catch (e) {} const save = () =&gt; { try { localStorage.setItem(&#x27;qrp&#x27;, JSON.stringify({ deg: S.deg, s: S.s, x: S.x, y: S.y })); } catch (e) {} }; const el = (tag, css, text) =&gt; { const e = document.createElement(tag); if (css) e.style.cssText = css; if (text) e.textContent = text; return e; }; const Z = 2147483000; const back = el(&#x27;div&#x27;, `position:fixed;inset:0;background:#000;z-index:${Z};display:none`); const pad = el(&#x27;div&#x27;, `position:fixed;inset:0;z-index:${Z + 2};display:none;cursor:move;touch-action:none;outline:3px dashed #ffb300;outline-offset:-3px`); const bar = el(&#x27;div&#x27;, `position:fixed;right:12px;bottom:12px;z-index:${Z + 3};display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;font:18px system-ui,sans-serif;opacity:.4;transition:opacity .2s`); bar.onmouseenter = () =&gt; bar.style.opacity = 1; bar.onmouseleave = () =&gt; bar.style.opacity = .4; const info = el(&#x27;div&#x27;, `position:fixed;left:50%25;top:12px;transform:translateX(-50%25);z-index:${Z + 3};background:rgba(0,0,0,.7);color:#fff;padding:6px 14px;border-radius:8px;font:18px system-ui,sans-serif;pointer-events:none;display:none`); const btn = (label, fn, color) =&gt; { const b = el(&#x27;button&#x27;, `font:inherit;padding:10px 16px;border:0;border-radius:8px;cursor:pointer;color:#fff;background:${color || &#x27;#333&#x27;}`, label); b.onclick = e =&gt; { e.stopPropagation(); fn(); }; bar.appendChild(b); return b; }; const player = () =&gt; document.querySelector(&#x27;#movie_player&#x27;) || document.querySelector(&#x27;.html5-video-player&#x27;); let saved = null; function layout() { const p = player(); if (!p) return; if (!S.on) { if (saved !== null) { p.style.cssText = saved; saved = null; kick(); } back.style.display = &#x27;none&#x27;; return; } if (saved === null) saved = p.style.cssText; const W = innerWidth, H = innerHeight, side = S.deg %25 180 !== 0; p.style.cssText = saved + `;position:fixed!important;left:50%25!important;top:50%25!important;margin:0!important;` + `width:${side ? H : W}px!important;height:${side ? W : H}px!important;max-width:none!important;max-height:none!important;` + `z-index:${Z + 1}!important;transform:translate(calc(-50%25 + ${S.x}px),calc(-50%25 + ${S.y}px)) rotate(${S.deg}deg) scale(${S.s})!important;`; back.style.display = &#x27;block&#x27;; info.textContent = `${Math.round(S.s * 100)}%25　トリガーでドラッグ＝移動／スティック上下＝拡大縮小`; kick(); } let internal = false; function kick() { internal = true; window.dispatchEvent(new Event(&#x27;resize&#x27;)); internal = false; } function rotate() { S.deg = (S.deg + 90) %25 360; S.on = true; save(); layout(); } function zoom(f) { S.s = Math.min(5, Math.max(0.2, S.s * f)); S.on = true; save(); layout(); } function reset() { Object.assign(S, { s: 1, x: 0, y: 0 }); save(); layout(); } function setAdjust(v) { S.adjust = v; pad.style.display = info.style.display = v ? &#x27;block&#x27; : &#x27;none&#x27;; adjBtn.style.background = v ? &#x27;#ffb300&#x27; : &#x27;#333&#x27;; adjBtn.style.color = v ? &#x27;#000&#x27; : &#x27;#fff&#x27;; } function off() { S.on = false; setAdjust(false); layout(); } function fullscreen() { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen &amp;&amp; document.documentElement.requestFullscreen().catch(() =&gt; {}); } btn(&#x27;⟳ 90°&#x27;, rotate, &#x27;#c62828&#x27;); const adjBtn = btn(&#x27;✥ 調整&#x27;, () =&gt; { S.on = true; layout(); setAdjust(!S.adjust); }); btn(&#x27;－&#x27;, () =&gt; zoom(1 / 1.15)); btn(&#x27;＋&#x27;, () =&gt; zoom(1.15)); btn(&#x27;戻す&#x27;, reset); btn(&#x27;全画面&#x27;, fullscreen); btn(&#x27;元に戻す&#x27;, off); btn(&#x27;✕&#x27;, () =&gt; { off(); bar.style.display = &#x27;none&#x27;; }); let drag = null; pad.addEventListener(&#x27;pointerdown&#x27;, e =&gt; { drag = { px: e.clientX, py: e.clientY, x: S.x, y: S.y }; pad.setPointerCapture(e.pointerId); }); pad.addEventListener(&#x27;pointermove&#x27;, e =&gt; { if (!drag) return; S.x = drag.x + e.clientX - drag.px; S.y = drag.y + e.clientY - drag.py; layout(); }); const end = () =&gt; { if (drag) { drag = null; save(); } }; pad.addEventListener(&#x27;pointerup&#x27;, end); pad.addEventListener(&#x27;pointercancel&#x27;, end); pad.addEventListener(&#x27;wheel&#x27;, e =&gt; { e.preventDefault(); zoom(Math.exp(-e.deltaY * 0.0015)); }, { passive: false }); pad.addEventListener(&#x27;dblclick&#x27;, reset); document.documentElement.append(back, pad, info, bar); addEventListener(&#x27;resize&#x27;, () =&gt; { if (S.on &amp;&amp; !internal) layout(); }); document.addEventListener(&#x27;fullscreenchange&#x27;, layout); document.addEventListener(&#x27;yt-navigate-start&#x27;, off); window.__qrp = { toggle() { bar.style.display = bar.style.display === &#x27;none&#x27; ? &#x27;flex&#x27; : &#x27;none&#x27;; } }; if (S.deg) { S.on = true; layout(); } })();</textarea>
+  </section>
+
+  <section>
+    <h2>2. ブックマークに登録</h2>
+    <ol>
+      <li>このページをブックマークに追加する</li>
+      <li>ブックマーク一覧でいま追加したものを<b>編集</b>し、名前を「⟳回転」などにする</li>
+      <li>URL欄の中身を全部消して、コピーしたコードを<b>貼り付けて保存</b></li>
+    </ol>
+    <p>編集できない場合の代わり：YouTubeの動画ページでアドレスバーに <b>javascript:</b> と手で打ってから、コピーしたコードの「javascript:」より後ろを貼り付けてEnter（貼り付けだけだと先頭の javascript: が消されて動きません）。</p>
+  </section>
+
+  <section>
+    <h2>3. 使い方</h2>
+    <ol>
+      <li>Questのブラウザで youtube.com を開き、ふつうにログインして動画を探す</li>
+      <li>動画を開いたら、ブックマークの「⟳回転」を押す → 右下にボタンが出る</li>
+    </ol>
+    <div class="keys">
+      <span>⟳ 90°</span><span>押すたびに90°回転（画面いっぱいに表示）</span>
+      <span>✥ 調整</span><span>ONの間：トリガーを押したまま動かす＝移動、スティック上下＝拡大縮小</span>
+      <span>－ ／ ＋</span><span>縮小・拡大</span>
+      <span>戻す</span><span>位置と大きさを元に</span>
+      <span>全画面</span><span>ブラウザのウィンドウごと全画面に</span>
+      <span>元に戻す</span><span>回転をやめて普通のYouTubeに戻す</span>
+      <span>✕</span><span>ボタンを消す（もう一度ブックマークで出る）</span>
+    </div>
+  </section>
+
+  <section>
+    <h2>ブラウザごと大きくするには</h2>
+    <ol>
+      <li>ウィンドウの<b>角や端をつかんでドラッグ</b>すると大きさを変えられる</li>
+      <li>ウィンドウ下のバーをつかむと、位置や距離を動かせる</li>
+      <li>「全画面」ボタンで、映画館のような大きな画面になる</li>
+    </ol>
+  </section>
+
+  <p><a href="./">URLを貼って使う版（回転プレイヤー）はこちら</a></p>
+</main>
+<script>
+document.getElementById('copy').onclick = async () => {
+  const t = document.getElementById('code');
+  const msg = document.getElementById('msg');
+  try {
+    await navigator.clipboard.writeText(t.value);
+    msg.textContent = 'コピーしました';
+  } catch (e) {
+    t.focus();
+    t.select();
+    msg.textContent = '選択しました。長押し／右クリックでコピーしてください';
+  }
+};
+</script>
+</body>
+</html>
