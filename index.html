@@ -4,70 +4,103 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="referrer" content="strict-origin-when-cross-origin">
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
 <title>回転プレイヤー</title>
 <style>
   * { box-sizing: border-box; }
   html, body { margin: 0; height: 100%; background: #000; color: #eee;
     font-family: system-ui, "Segoe UI", sans-serif; overflow: hidden; }
-  #bar { position: fixed; top: 0; left: 0; right: 0; z-index: 10; display: flex; gap: 8px;
-    padding: 10px; background: rgba(20,20,20,.92); align-items: center; flex-wrap: wrap; }
-  #url { flex: 1; min-width: 200px; font-size: 18px; padding: 10px 12px; border-radius: 8px;
-    border: 1px solid #444; background: #111; color: #eee; }
-  button { font-size: 18px; padding: 10px 16px; border-radius: 8px; border: 0;
-    background: #333; color: #fff; cursor: pointer; }
-  button:hover { background: #444; }
-  #rot { background: #c62828; font-size: 22px; padding: 10px 22px; }
+  button { font: inherit; font-size: 18px; padding: 0 6px; height: 48px; border-radius: 8px; border: 0;
+    background: #2a2a2a; color: #fff; cursor: pointer; white-space: nowrap; }
+  button:hover { background: #3a3a3a; }
+
+  /* 操作ボタンは右端の列にまとめ、動画とは重ねない */
+  #side { position: fixed; top: 0; right: 0; bottom: 0; width: var(--side); z-index: 10;
+    background: #0d0d0d; border-left: 1px solid #222; padding: 8px;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px; align-content: center; }
+  #side .w { grid-column: span 2; }
+  #side hr { grid-column: span 2; width: 100%; border: 0; border-top: 1px solid #262626; margin: 2px 0; }
+  #rot { background: #c62828; font-size: 20px; }
   #rot:hover { background: #e53935; }
-  #stage { position: absolute; inset: 0; top: var(--bar, 64px); }
+  #play { background: #1565c0; font-size: 22px; }
+  #play:hover { background: #1e88e5; }
+  .seek { font-size: 17px; }
+  #adj.on { background: #ffb300; color: #000; }
+
+  #stage { position: absolute; left: 0; top: 0; bottom: 0; right: var(--side); overflow: hidden; }
   #frame { position: absolute; left: 50%; top: 50%; border: 0; background: #000;
     transition: transform .25s ease; }
   #hint { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-    color: #888; font-size: 20px; text-align: center; padding: 20px; }
-  /* UIを隠したとき：右下に小さな回転ボタンだけ残す */
-  body.hide #bar { display: none; }
-  body.hide #stage { top: 0; }
-  #mini { position: fixed; right: 12px; bottom: 12px; z-index: 11; display: none;
-    opacity: .35; background: #c62828; font-size: 22px; }
-  #mini:hover { opacity: 1; }
-  #show { position: fixed; left: 12px; bottom: 12px; z-index: 11; display: none; opacity: .35; }
+    color: #888; font-size: 20px; text-align: center; padding: 20px; line-height: 1.8; }
+  #hint a { color: #ffb300; }
+
+  /* URL入力は必要なときだけ上に出す */
+  #bar { position: absolute; top: 0; left: 0; right: 0; z-index: 7; display: flex; gap: 8px;
+    padding: 10px; background: rgba(20,20,20,.95); }
+  #bar[hidden] { display: none; }
+  #url { flex: 1; min-width: 0; font-size: 18px; padding: 10px 12px; border-radius: 8px;
+    border: 1px solid #444; background: #111; color: #eee; }
+  #bar button { padding: 0 18px; }
+
+  /* 隠したとき：右下に小さなボタンだけ残す */
+  body.hide { --side: 0px !important; }
+  body.hide #side { display: none; }
+  #show { position: fixed; right: 8px; bottom: 8px; z-index: 11; display: none; opacity: .3;
+    width: 48px; }
   #show:hover { opacity: 1; }
-  body.hide #mini, body.hide #show { display: block; }
+  body.hide #show { display: block; }
+
   /* 調整モード：動画の上に透明な操作面をかぶせ、ドラッグ・スティックを受け取る */
   #pad { position: absolute; inset: 0; z-index: 5; display: none; cursor: move;
     touch-action: none; outline: 3px dashed #ffb300; outline-offset: -3px; }
   body.adjust #pad { display: block; }
   body.adjust #frame { transition: none; }
-  #adj.on, #mini2.on { background: #ffb300; color: #000; }
-  #mini2 { position: fixed; right: 80px; bottom: 12px; z-index: 11; display: none; opacity: .35; font-size: 22px; }
-  #mini2:hover, #mini2.on { opacity: 1; }
-  body.hide #mini2 { display: block; }
   #zoomInfo { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); z-index: 6;
     background: rgba(0,0,0,.7); padding: 6px 14px; border-radius: 8px; font-size: 18px;
-    pointer-events: none; display: none; }
+    pointer-events: none; display: none; white-space: nowrap; }
   body.adjust #zoomInfo { display: block; }
+  #toast { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); z-index: 8;
+    background: rgba(0,0,0,.75); padding: 12px 22px; border-radius: 12px; font-size: 26px;
+    pointer-events: none; opacity: 0; transition: opacity .3s; }
+  #toast.on { opacity: 1; transition: none; }
 </style>
 </head>
-<body>
-<div id="bar">
-  <input id="url" placeholder="YouTubeのURLを貼り付け" autocomplete="off">
-  <button id="load">再生</button>
-  <button id="rot" title="90°回転 (R)">⟳ 90°</button>
-  <button id="adj" title="位置・大きさ調整 (A)">✥ 調整</button>
+<body style="--side:150px">
+<div id="stage">
+  <div id="hint">YouTubeのURLを貼って「再生」<br><a href="setup.html">ログインしたYouTubeで直接回したいときはこちら</a></div>
+  <iframe id="frame" hidden allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>
+  <div id="pad"></div>
+  <div id="zoomInfo"></div>
+  <div id="toast"></div>
+  <div id="bar">
+    <input id="url" placeholder="YouTubeのURLを貼り付け" autocomplete="off">
+    <button id="load">再生</button>
+    <button id="paste" title="クリップボードから貼り付けて再生">貼付</button>
+  </div>
+</div>
+
+<div id="side">
+  <button id="rot" class="w" title="90°回転 (R)">⟳ 90°</button>
+  <hr>
+  <button class="seek" data-s="-30" title="30秒戻る">«30</button>
+  <button class="seek" data-s="30" title="30秒進む">30»</button>
+  <button class="seek" data-s="-10" title="10秒戻る (J)">‹10</button>
+  <button class="seek" data-s="10" title="10秒進む (L)">10›</button>
+  <button id="play" class="w" title="再生／一時停止 (K)">▶❚❚</button>
+  <hr>
+  <button id="adj" class="w" title="位置・大きさ調整 (A)">✥ 調整</button>
   <button id="zout" title="縮小 (-)">－</button>
   <button id="zin" title="拡大 (+)">＋</button>
   <button id="reset" title="位置と大きさを戻す (0)">戻す</button>
   <button id="fs" title="全画面 (F)">全画面</button>
+  <hr>
+  <button id="urlBtn" title="URLを入れる">URL</button>
   <button id="hide" title="ボタンを隠す (H)">隠す</button>
 </div>
-<div id="stage">
-  <div id="hint">YouTubeのURLを貼って「再生」<br><br><a href="setup.html" style="color:#ffb300">ログインしたYouTubeで直接回したいときはこちら</a></div>
-  <iframe id="frame" hidden allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe>
-  <div id="pad"></div>
-  <div id="zoomInfo"></div>
-</div>
-<button id="mini" title="90°回転">⟳</button>
-<button id="mini2" title="位置・大きさ調整">✥</button>
-<button id="show">☰</button>
+<button id="show" title="ボタンを出す">☰</button>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -97,23 +130,54 @@ function parse(input) {
   return { id, list, start: t ? parseInt(t, 10) || 0 : 0 };
 }
 
+// ---- YouTube IFrame API（シーク・再生停止に使う） ----
+let yt = null, apiReady = false;
+window.onYouTubeIframeAPIReady = () => { apiReady = true; attach(); };
+(() => { const s = document.createElement('script'); s.src = 'https://www.youtube.com/iframe_api'; document.head.append(s); })();
+function attach() {
+  if (!apiReady || frame.hidden || !frame.src) return;
+  yt = new YT.Player(frame);
+}
+
 function load() {
   const p = parse($('url').value);
-  if (!p) { $('hint').textContent = 'URLを読み取れませんでした'; return; }
-  const q = new URLSearchParams({ autoplay: 1, playsinline: 1, rel: 0, origin: location.origin });
+  if (!p) { $('hint').textContent = 'URLを読み取れませんでした'; $('hint').hidden = false; return; }
+  const q = new URLSearchParams({ autoplay: 1, playsinline: 1, rel: 0, enablejsapi: 1, origin: location.origin });
   if (p.list) q.set('list', p.list);
   if (p.start) q.set('start', p.start);
   frame.src = `https://www.youtube.com/embed/${p.id || 'videoseries'}?${q}`;
   frame.hidden = false;
   $('hint').hidden = true;
+  $('bar').hidden = true;
   store.set('url', $('url').value);
+  yt = null;
+  attach();
   layout();
 }
 
-// 90°/270°のときはiframeの縦横を入れ替えてから回転 → 画面いっぱいに収まる
+let toastT = 0;
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('on');
+  clearTimeout(toastT);
+  toastT = setTimeout(() => t.classList.remove('on'), 700);
+}
+
+function seek(sec) {
+  if (!yt || !yt.getCurrentTime) { toast('準備中…'); return; }
+  const dur = yt.getDuration() || Infinity;
+  yt.seekTo(Math.max(0, Math.min(dur - 1, yt.getCurrentTime() + sec)), true);
+  toast(sec > 0 ? `${sec}秒 ›` : `‹ ${-sec}秒`);
+}
+function playPause() {
+  if (!yt || !yt.getPlayerState) return;
+  if (yt.getPlayerState() === 1) { yt.pauseVideo(); toast('❚❚'); }
+  else { yt.playVideo(); toast('▶'); }
+}
+
+// 90°/270°のときはiframeの縦横を入れ替えてから回転 → 画面の高さいっぱいに収まる
 function layout() {
-  document.documentElement.style.setProperty('--bar',
-    document.body.classList.contains('hide') ? '0px' : $('bar').offsetHeight + 'px');
   const W = stage.clientWidth, H = stage.clientHeight;
   const side = deg % 180 !== 0;
   frame.style.width = (side ? H : W) + 'px';
@@ -126,25 +190,19 @@ function layout() {
 // ---- 位置・大きさ調整 ----
 const view = { s: 1, x: 0, y: 0 };
 const ZMIN = 0.2, ZMAX = 5;
-
 function saveView() { store.set('view', JSON.stringify(view)); }
-
 function zoom(factor) {
   view.s = Math.min(ZMAX, Math.max(ZMIN, view.s * factor));
   saveView();
   layout();
 }
-
 function resetView() {
   Object.assign(view, { s: 1, x: 0, y: 0 });
   saveView();
   layout();
 }
-
 function toggleAdjust() {
-  const on = document.body.classList.toggle('adjust');
-  $('adj').classList.toggle('on', on);
-  $('mini2').classList.toggle('on', on);
+  $('adj').classList.toggle('on', document.body.classList.toggle('adjust'));
 }
 
 const pad = $('pad');
@@ -169,42 +227,61 @@ pad.addEventListener('wheel', e => {
 }, { passive: false });
 pad.addEventListener('dblclick', resetView);
 
+function enterFullscreen() {
+  if (!document.fullscreenElement) document.documentElement.requestFullscreen?.().catch(() => {});
+}
 function rotate() {
-  deg += 90;
-  store.set('deg', deg % 360);
+  deg = (deg + 90) % 360;
+  store.set('deg', deg);
+  // 縦にしたら全画面にして、使える高さを最大にする
+  if (deg % 180 !== 0) enterFullscreen();
   layout();
 }
-
 function fullscreen() {
   if (document.fullscreenElement) document.exitFullscreen();
-  else document.documentElement.requestFullscreen?.().catch(() => {});
+  else enterFullscreen();
 }
-
 function toggleUI() {
   document.body.classList.toggle('hide');
   layout();
 }
+function showUrl() {
+  const b = $('bar');
+  b.hidden = !b.hidden;
+  if (!b.hidden) $('url').focus();
+}
 
 $('load').onclick = load;
+$('paste').onclick = async () => {
+  try { $('url').value = await navigator.clipboard.readText(); load(); }
+  catch { $('url').focus(); toast('長押しで貼り付けてください'); }
+};
 $('url').addEventListener('keydown', e => { if (e.key === 'Enter') load(); });
-$('rot').onclick = $('mini').onclick = rotate;
+$('rot').onclick = rotate;
 $('fs').onclick = fullscreen;
 $('hide').onclick = $('show').onclick = toggleUI;
-$('adj').onclick = $('mini2').onclick = toggleAdjust;
+$('adj').onclick = toggleAdjust;
 $('zin').onclick = () => zoom(1.15);
 $('zout').onclick = () => zoom(1 / 1.15);
 $('reset').onclick = resetView;
+$('urlBtn').onclick = showUrl;
+$('play').onclick = playPause;
+document.querySelectorAll('.seek').forEach(b => b.onclick = () => seek(+b.dataset.s));
 addEventListener('resize', layout);
 document.addEventListener('fullscreenchange', layout);
 document.addEventListener('keydown', e => {
   if (e.target === $('url')) return;
-  if (e.key === 'r' || e.key === 'R') rotate();
-  else if (e.key === 'f' || e.key === 'F') fullscreen();
-  else if (e.key === 'h' || e.key === 'H') toggleUI();
-  else if (e.key === 'a' || e.key === 'A') toggleAdjust();
-  else if (e.key === '+' || e.key === '=') zoom(1.15);
-  else if (e.key === '-') zoom(1 / 1.15);
-  else if (e.key === '0') resetView();
+  const k = e.key.toLowerCase();
+  if (k === 'r') rotate();
+  else if (k === 'f') fullscreen();
+  else if (k === 'h') toggleUI();
+  else if (k === 'a') toggleAdjust();
+  else if (k === 'j') seek(-10);
+  else if (k === 'l') seek(10);
+  else if (k === 'k' || k === ' ') { e.preventDefault(); playPause(); }
+  else if (k === '+' || k === '=') zoom(1.15);
+  else if (k === '-') zoom(1 / 1.15);
+  else if (k === '0') resetView();
   else if (e.key.startsWith('Arrow')) {
     const d = 20;
     if (e.key === 'ArrowLeft') view.x -= d;
@@ -216,10 +293,16 @@ document.addEventListener('keydown', e => {
   }
 });
 
-deg = parseInt(store.get('deg'), 10) || 0;
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+
+deg = (parseInt(store.get('deg'), 10) || 0) % 360;
 try { Object.assign(view, JSON.parse(store.get('view')) || {}); } catch {}
+// ?url= / ?text= でURLを渡されたら自動で読み込む
+const qs = new URLSearchParams(location.search);
+const shared = qs.get('url') || qs.get('text');
 const last = store.get('url');
-if (last) $('url').value = last;
+if (shared) { $('url').value = shared; load(); }
+else if (last) $('url').value = last;
 layout();
 </script>
 </body>
