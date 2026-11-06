@@ -29,7 +29,7 @@
   const mini = el('div', `position:fixed;right:12px;bottom:12px;z-index:${Z + 3};display:flex;gap:6px;font:18px system-ui,sans-serif;opacity:.5`);
   mini.onmouseenter = () => mini.style.opacity = 1;
   mini.onmouseleave = () => mini.style.opacity = .5;
-  const info = el('div', `position:fixed;left:${(innerWidth - SIDE) / 2}px;top:12px;transform:translateX(-50%);z-index:${Z + 3};background:rgba(0,0,0,.7);color:#fff;padding:6px 14px;border-radius:8px;font:18px system-ui,sans-serif;pointer-events:none;display:none;white-space:nowrap`);
+  const info = el('div', `position:fixed;top:12px;transform:translateX(-50%);z-index:${Z + 3};background:rgba(0,0,0,.7);color:#fff;padding:6px 14px;border-radius:8px;font:18px system-ui,sans-serif;pointer-events:none;display:none;white-space:nowrap`);
   const toastEl = el('div', `position:fixed;top:50%;transform:translate(-50%,-50%);z-index:${Z + 3};background:rgba(0,0,0,.75);color:#fff;padding:12px 22px;border-radius:12px;font:26px system-ui,sans-serif;pointer-events:none;opacity:0;transition:opacity .3s`);
 
   const btn = (parent, label, fn, color, wide) => {
@@ -42,7 +42,9 @@
 
   const player = () => document.querySelector('#movie_player') || document.querySelector('.html5-video-player');
   const video = () => { const p = player(); return p && p.querySelector('video'); };
+  const isWatch = () => location.pathname === '/watch';
   let saved = null;
+  let hidden = false;
 
   let toastT = 0;
   function toast(m) {
@@ -54,14 +56,17 @@
     toastT = setTimeout(() => { toastEl.style.transition = 'opacity .3s'; toastEl.style.opacity = 0; }, 700);
   }
 
+  // S.on は「回転したい」という希望。動画ページにいる間だけ実際に回す（ホームなどでは一旦ふつうに戻し、動画を開いたらまた回す）
   function layout() {
     const p = player();
-    side.style.display = S.on ? 'grid' : 'none';
-    mini.style.display = S.on || hidden ? 'none' : 'flex';
-    if (!p) return;
-    if (!S.on) {
-      if (saved !== null) { p.style.cssText = saved; saved = null; p.classList.remove('qrp-on'); kick(); }
+    const act = S.on && isWatch() && !!p;
+    side.style.display = act ? 'grid' : 'none';
+    mini.style.display = act || hidden ? 'none' : 'flex';
+    if (!act) {
+      if (p && saved !== null) { p.style.cssText = saved; p.classList.remove('qrp-on'); kick(); }
+      saved = null;
       back.style.display = 'none';
+      if (!S.on) setAdjust(false);
       return;
     }
     if (saved === null) saved = p.style.cssText;
@@ -80,13 +85,10 @@
   let internal = false;
   function kick() { internal = true; window.dispatchEvent(new Event('resize')); internal = false; }
 
-  function enterFs() {
-    if (!document.fullscreenElement && document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
-  }
   function rotate() {
-    S.deg = (S.deg + 90) % 360; S.on = true; save();
-    if (S.deg % 180 !== 0) enterFs();
+    S.deg = (S.deg + 90) % 360; S.on = true; hidden = false; save();
     layout();
+    if (S.deg % 180 !== 0) big();
   }
   function zoom(f) { S.s = Math.min(5, Math.max(0.2, S.s * f)); S.on = true; save(); layout(); }
   function reset() { Object.assign(S, { s: 1, x: 0, y: 0 }); save(); layout(); }
@@ -96,24 +98,146 @@
     adjBtn.style.background = v ? '#ffb300' : '#2a2a2a';
     adjBtn.style.color = v ? '#000' : '#fff';
   }
-  function off() { S.on = false; setAdjust(false); layout(); }
-  function fullscreen() {
-    if (document.fullscreenElement) document.exitFullscreen();
-    else enterFs();
-  }
+  function off() { S.on = false; layout(); }
   function seek(sec) {
     const v = video();
     if (!v) return;
     v.currentTime = Math.max(0, Math.min((v.duration || Infinity) - 1, v.currentTime + sec));
     toast(sec > 0 ? `${sec}秒 ›` : `‹ ${-sec}秒`);
+    bigUi();
   }
   function playPause() {
     const v = video();
     if (!v) return;
     if (v.paused) { v.play(); toast('▶'); } else { v.pause(); toast('❚❚'); }
+    bigUi();
   }
 
+  // ---- 大画面：回転した映像を別の<video>に流し込み、その<video>を全画面にする ----
+  // Questのブラウザは<video>そのものを全画面にすると、動画の縦横比のままウィンドウより大きく出す。
+  // ページ全体の全画面ではウィンドウの形のままなので、縦長の映像が小さくなる。
+  // 全画面中はページのボタンが見えないので、ボタンは映像の中に描き、タップ位置で判定する。
+  const cv = el('canvas');
+  const cx = cv.getContext('2d');
+  const out = el('video', 'background:#000;object-fit:contain');
+  out.muted = true;
+  out.playsInline = true;
+  out.autoplay = true;
+  let raf = 0, uiUntil = 0, stream = null;
+  const B = [
+    ['«30', () => seek(-30)], ['‹10', () => seek(-10)], ['▶', playPause], ['10›', () => seek(10)],
+    ['30»', () => seek(30)], ['⟳', () => { S.deg = (S.deg + 180) % 360; save(); layout(); bigUi(); }], ['✕', () => document.exitFullscreen()],
+  ];
+  const fmt = t => { t = Math.max(0, Math.floor(t || 0)); const h = Math.floor(t / 3600), m = Math.floor(t / 60) % 60, s = t % 60; return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(s).padStart(2, '0'); };
+  function geo() {
+    const W = cv.width, H = cv.height, u = W / 8;
+    return { W, H, u, rowY: H - u * 1.35, rowH: u, barY: H - u * 1.9, barH: u * 0.5 };
+  }
+  function draw() {
+    raf = requestAnimationFrame(draw);
+    const v = video();
+    if (!v || !v.videoWidth) return;
+    const sd = S.deg % 180 !== 0;
+    const tw = sd ? v.videoHeight : v.videoWidth, th = sd ? v.videoWidth : v.videoHeight;
+    const k = Math.min(1, 1920 / Math.max(tw, th));
+    const cw = Math.round(tw * k), ch = Math.round(th * k);
+    if (cv.width !== cw || cv.height !== ch) { cv.width = cw; cv.height = ch; }
+    cx.setTransform(1, 0, 0, 1, 0, 0);
+    cx.fillStyle = '#000';
+    cx.fillRect(0, 0, cw, ch);
+    cx.translate(cw / 2, ch / 2);
+    cx.rotate(S.deg * Math.PI / 180);
+    const dw = v.videoWidth * k, dh = v.videoHeight * k;
+    cx.drawImage(v, -dw / 2, -dh / 2, dw, dh);
+    cx.setTransform(1, 0, 0, 1, 0, 0);
+    if (performance.now() < uiUntil) drawUi(v);
+  }
+  function drawUi(v) {
+    const g = geo();
+    cx.fillStyle = 'rgba(0,0,0,.6)';
+    cx.fillRect(0, g.barY - g.u * 0.5, g.W, g.H - g.barY + g.u * 0.5);
+    const x0 = g.u * 0.3, bw = g.W - g.u * 0.6, by = g.barY + g.barH / 2;
+    const r = v.duration ? v.currentTime / v.duration : 0;
+    cx.fillStyle = 'rgba(255,255,255,.3)';
+    cx.fillRect(x0, by - g.u * 0.04, bw, g.u * 0.08);
+    cx.fillStyle = '#f00';
+    cx.fillRect(x0, by - g.u * 0.04, bw * r, g.u * 0.08);
+    cx.beginPath();
+    cx.arc(x0 + bw * r, by, g.u * 0.12, 0, Math.PI * 2);
+    cx.fill();
+    cx.fillStyle = '#fff';
+    cx.font = `${g.u * 0.3}px system-ui,sans-serif`;
+    cx.textAlign = 'left';
+    cx.textBaseline = 'bottom';
+    cx.fillText(`${fmt(v.currentTime)} / ${fmt(v.duration)}`, x0, by - g.u * 0.15);
+    const w = g.W / B.length;
+    cx.textAlign = 'center';
+    cx.textBaseline = 'middle';
+    B.forEach((b, i) => {
+      const label = i === 2 ? (v.paused ? '▶' : '❚❚') : b[0];
+      cx.fillStyle = i === 2 ? '#1565c0' : i === 5 ? '#c62828' : '#333';
+      cx.beginPath();
+      if (cx.roundRect) cx.roundRect(i * w + w * 0.08, g.rowY, w * 0.84, g.rowH, g.u * 0.15); else cx.rect(i * w + w * 0.08, g.rowY, w * 0.84, g.rowH);
+      cx.fill();
+      cx.fillStyle = '#fff';
+      cx.font = `${g.u * (label.length > 2 ? 0.34 : 0.42)}px system-ui,sans-serif`;
+      cx.fillText(label, i * w + w / 2, g.rowY + g.rowH / 2);
+    });
+  }
+  function bigUi() { uiUntil = performance.now() + 3500; }
+  out.addEventListener('click', e => {
+    e.preventDefault();
+    const r = out.getBoundingClientRect();
+    const sc = Math.min(r.width / cv.width, r.height / cv.height);
+    const x = (e.clientX - r.left - (r.width - cv.width * sc) / 2) / sc;
+    const y = (e.clientY - r.top - (r.height - cv.height * sc) / 2) / sc;
+    const g = geo();
+    if (performance.now() >= uiUntil) { bigUi(); return; }
+    if (y >= g.rowY && y <= g.rowY + g.rowH) {
+      const b = B[Math.floor(x / (g.W / B.length))];
+      if (b) b[1]();
+      bigUi();
+    } else if (y >= g.barY - g.barH && y <= g.barY + g.barH * 1.5) {
+      const v = video();
+      if (v && v.duration) v.currentTime = Math.max(0, Math.min(1, (x - g.u * 0.3) / (g.W - g.u * 0.6))) * v.duration;
+      bigUi();
+    } else {
+      uiUntil = 0;
+    }
+  });
+  // スティック上下：10秒送り・戻し
+  out.addEventListener('wheel', e => { e.preventDefault(); if (Math.abs(e.deltaY) > 20) seek(e.deltaY > 0 ? 10 : -10); }, { passive: false });
+  function big() {
+    const v = video();
+    if (!v) return;
+    if (S.deg % 180 === 0) { S.deg = 90; save(); layout(); }
+    if (!stream) {
+      try { stream = cv.captureStream(30); } catch (e) { stream = null; }
+    }
+    if (!stream) { toast('この動画は大画面にできません'); return; }
+    cancelAnimationFrame(raf);
+    draw();
+    out.srcObject = stream;
+    out.style.cssText = 'position:fixed;left:0;top:0;width:1px;height:1px;background:#000;object-fit:contain';
+    document.documentElement.appendChild(out);
+    out.play().catch(() => {});
+    bigUi();
+    const req = out.requestFullscreen || out.webkitRequestFullscreen;
+    if (req) Promise.resolve(req.call(out)).catch(() => { stopBig(); toast('全画面にできませんでした'); });
+  }
+  function stopBig() {
+    cancelAnimationFrame(raf);
+    raf = 0;
+    out.pause();
+    out.remove();
+  }
+  document.addEventListener('fullscreenchange', () => {
+    if (document.fullscreenElement !== out && out.isConnected) stopBig();
+    layout();
+  });
+
   btn(side, '⟳ 90°', rotate, '#c62828', true);
+  btn(side, '⛶ 大画面', big, '#6a1b9a', true);
   hr();
   btn(side, '«30', () => seek(-30));
   btn(side, '30»', () => seek(30));
@@ -124,12 +248,10 @@
   const adjBtn = btn(side, '✥ 調整', () => setAdjust(!S.adjust), null, true);
   btn(side, '－', () => zoom(1 / 1.15));
   btn(side, '＋', () => zoom(1.15));
-  btn(side, '戻す', reset);
-  btn(side, '全画面', fullscreen);
+  btn(side, '戻す', reset, null, true);
   hr();
   btn(side, '回転やめる', off, null, true);
 
-  let hidden = false;
   btn(mini, '⟳ 90°', rotate, '#c62828');
   btn(mini, '✕', () => { hidden = true; layout(); });
 
@@ -144,9 +266,8 @@
 
   document.documentElement.append(css, back, pad, info, toastEl, side, mini);
   addEventListener('resize', () => { if (S.on && !internal) layout(); });
-  document.addEventListener('fullscreenchange', layout);
-  // 別の動画に移ったら元に戻す（YouTubeは画面遷移してもページを読み直さない）
-  document.addEventListener('yt-navigate-start', off);
+  // YouTubeは画面遷移してもページを読み直さない。遷移が終わったら今のページに合わせて回し直す
+  document.addEventListener('yt-navigate-finish', () => setTimeout(layout, 300));
 
   window.__qrp = { toggle() { if (S.on) { off(); } else { hidden = !hidden; layout(); } } };
   if (S.deg) { S.on = true; }
